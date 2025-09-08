@@ -145,3 +145,10 @@ const config: GlobalConfig = {
 };
 
 export default config;
+
+
+
+
+
+
+const i = 100;
