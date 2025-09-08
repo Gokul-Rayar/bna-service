@@ -1,0 +1,85 @@
+name: Release
+
+on:
+    push:
+        branches:
+            - main
+
+permissions:
+    contents: write
+    pull-requests: write
+
+jobs:
+    release:
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout code (full history)
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+                  # Optional hardening when pushing back via @semantic-release/git with a PAT
+                  # persist-credentials: false
+
+            - name: Ensure tags are present
+              run: git fetch --tags --force
+
+            # Optional: fast-fail if the push was not a merge commit (reduces API calls)
+            - name: Verify merge commit
+              id: mergecheck
+              run: |
+                  PARENTS=$(git show -s --format=%P HEAD | wc -w)
+                  if [ "$PARENTS" -lt 2 ]; then
+                    echo "merge=no" >> $GITHUB_OUTPUT
+                  else
+                    echo "merge=yes" >> $GITHUB_OUTPUT
+                  fi
+
+            # Extract merged PR number from the merge commit message (works for merge/squash)
+            - name: Get merged PR number
+              id: prnum
+              if: steps.mergecheck.outputs.merge == 'yes'
+              run: |
+                  PR_NUMBER=$(git log -1 --pretty=%B | sed -n 's/.*#\([0-9][0-9]*\).*/\1/p' | head -1)
+                  echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+              shell: bash
+
+            # Get the PR head branch name via gh CLI
+            - name: Get PR head branch
+              id: headref
+              if: steps.prnum.outputs.pr_number != ''
+              run: |
+                  HEAD_REF=$(gh pr view "${{ steps.prnum.outputs.pr_number }}" --json headRefName -q .headRefName)
+                  echo "head_ref=$HEAD_REF" >> $GITHUB_OUTPUT
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+            # Hard gate: only continue if merged from release/*
+            - name: Abort if not from release/*
+              if: steps.headref.outputs.head_ref == '' || !startsWith(steps.headref.outputs.head_ref, 'release/')
+              run: |
+                  echo "Not a merge from release/*; skipping release."
+                  exit 0
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 20
+
+            - uses: actions/cache@v4
+              with:
+                  path: ~/.npm
+                  key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
+                  restore-keys: |
+                      ${{ runner.os }}-node-
+
+            - name: Install dependencies
+              run: npm ci
+
+            - name: Build project
+              run: npm run build
+
+            - name: Run Semantic Release
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: npx semantic-release --extends ./dist/release.config.js
