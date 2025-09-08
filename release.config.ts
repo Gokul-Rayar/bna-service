@@ -19,7 +19,7 @@ function readFileSafe(file: string): string {
 // Extract the "Unreleased" section (robust to newlines/casing)
 function getUnreleased(content: string): string {
     const match = content.match(/#\s*Unreleased\s*[\r\n]+([\s\S]*?)(?:\n#|\r\n#|$)/i);
-    return match?.[10]?.trim() ?? '';
+    return match?.[1]?.trim() ?? '';
 }
 
 // Non-empty check for any meaningful line
